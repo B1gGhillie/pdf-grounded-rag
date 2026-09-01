@@ -1,0 +1,47 @@
+retrieval:
+  model: vidore/colpali-v1.3-hf
+  clip_model: openai/clip-vit-base-patch32
+  top_k: 5
+  cache_visual_embeddings: true
+  # Adaptive hybrid fusion: per-page text weight in [min, max]
+  fusion:
+    min_text_weight: 0.25
+    max_text_weight: 0.75
+
+generation:
+  model: Qwen/Qwen2-VL-2B-Instruct
+  max_new_tokens: 512
+  load_in_4bit: false
+
+pdf:
+  dpi: 144
+  max_pages_per_doc: 50
+
+# Runtime backends. "auto" picks ColPali/VLM when RAM/VRAM is enough,
+# otherwise falls back to CLIP visual + extractive generation (laptop-safe).
+runtime:
+  visual_backend: auto       # auto | colpali | clip | none
+  generation_backend: auto   # auto | vlm | extractive
+  device: auto
+  demo_mode: false
+
+# Phase 2: page-level grounding (Cite-then-Verify)
+grounding:
+  enabled: true
+  cite_format: "[p.{page}]"
+  verify: true
+  verification_threshold: 0.5
+  verify_mode: auto          # auto | vlm | lexical
+  lexical_min_overlap: 0.25
+
+# Phase 3: multi-signal refusal
+# score_threshold applies to absolute fused_score (post-fusion, typically [0,1])
+refusal:
+  enabled: true
+  score_threshold: 0.25
+  demo_score_threshold: 0.05
+  margin_threshold: null  # e.g. 0.05 to refuse ambiguous top-1/top-2 ties
+  use_retrieval_gate: true
+  use_model_refusal: true
+  use_citation_gate: true
+  use_grounding_gate: true

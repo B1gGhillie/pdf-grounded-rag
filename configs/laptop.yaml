@@ -1,0 +1,42 @@
+# Laptop / low-RAM profile: always runnable without ColPali / Qwen2-VL
+retrieval:
+  model: vidore/colpali-v1.3-hf
+  clip_model: openai/clip-vit-base-patch32
+  top_k: 5
+  cache_visual_embeddings: true
+  fusion:
+    min_text_weight: 0.25
+    max_text_weight: 0.75
+
+generation:
+  model: Qwen/Qwen2-VL-2B-Instruct
+  max_new_tokens: 256
+  load_in_4bit: false
+
+pdf:
+  dpi: 120
+  max_pages_per_doc: 50
+
+runtime:
+  visual_backend: clip
+  generation_backend: extractive
+  device: auto
+  demo_mode: true
+
+grounding:
+  enabled: true
+  cite_format: "[p.{page}]"
+  verify: true
+  verification_threshold: 0.5
+  verify_mode: lexical
+  lexical_min_overlap: 0.2
+
+refusal:
+  enabled: true
+  score_threshold: 0.05
+  demo_score_threshold: 0.05
+  margin_threshold: null
+  use_retrieval_gate: true
+  use_model_refusal: true
+  use_citation_gate: true
+  use_grounding_gate: true

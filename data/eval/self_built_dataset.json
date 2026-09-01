@@ -1,0 +1,110 @@
+{
+  "name": "self_built_sample",
+  "description": "Self-built mini benchmark for page grounding and refusal",
+  "items": [
+    {
+      "id": "q1",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "What is the main contribution of this document?",
+      "answer": "page-level grounding",
+      "gold_pages": [
+        1
+      ],
+      "answerable": true,
+      "category": "factual"
+    },
+    {
+      "id": "q2",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "What accuracy did hybrid RAG achieve?",
+      "answer": "87.3%",
+      "gold_pages": [
+        3
+      ],
+      "answerable": true,
+      "category": "numeric"
+    },
+    {
+      "id": "q3",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "Who is the CEO of OpenAI?",
+      "answer": "",
+      "gold_pages": [],
+      "answerable": false,
+      "category": "out_of_scope"
+    },
+    {
+      "id": "q4",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "Which model is used for multimodal answer generation?",
+      "answer": "Qwen2-VL",
+      "gold_pages": [
+        4
+      ],
+      "answerable": true,
+      "category": "table_lookup"
+    },
+    {
+      "id": "q5",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "What is the text-channel weight range used in fusion?",
+      "answer": "[0.25, 0.75]",
+      "gold_pages": [
+        2
+      ],
+      "answerable": true,
+      "category": "numeric"
+    },
+    {
+      "id": "q6",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "What page recall@5 did hybrid retrieval achieve?",
+      "answer": "0.84",
+      "gold_pages": [
+        3
+      ],
+      "answerable": true,
+      "category": "numeric"
+    },
+    {
+      "id": "q7",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "What was Apple's closing stock price yesterday?",
+      "answer": "",
+      "gold_pages": [],
+      "answerable": false,
+      "category": "out_of_scope"
+    },
+    {
+      "id": "q8",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "How does the verifier check cited pages?",
+      "answer": "YES/NO whether each cited page supports the claim",
+      "gold_pages": [
+        4
+      ],
+      "answerable": true,
+      "category": "factual"
+    },
+    {
+      "id": "q9",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "Why do pure OCR pipelines struggle on complex PDFs?",
+      "answer": "lose layout",
+      "gold_pages": [
+        1
+      ],
+      "answerable": true,
+      "category": "factual"
+    },
+    {
+      "id": "q10",
+      "pdf_path": "../pdfs/sample_doc.pdf",
+      "question": "What training hyperparameters were used for ColPali in this report?",
+      "answer": "",
+      "gold_pages": [],
+      "answerable": false,
+      "category": "insufficient_evidence"
+    }
+  ]
+}
