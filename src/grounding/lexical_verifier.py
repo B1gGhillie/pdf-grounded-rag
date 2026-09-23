@@ -90,9 +90,26 @@ def verify_grounded_answer_lexical(
     if any(r.get("reason") == "page_not_retrieved" for r in results):
         reason = "citation_outside_retrieval"
 
+    # Build structured feedback for retry
+    failed_pages = [r["page"] for r in results if not r.get("supported", False)]
+    feedback_parts = []
+    if failed_pages:
+        feedback_parts.append("Failed pages: {0}".format(", ".join("p.{0}".format(p) for p in failed_pages)))
+        for r in results:
+            if not r.get("supported", False):
+                overlap = r.get("overlap", 0.0)
+                if overlap < 0.1:
+                    feedback_parts.append("Page {0}: very low lexical overlap ({1:.2f})".format(r["page"], overlap))
+                elif overlap < min_token_overlap:
+                    feedback_parts.append("Page {0}: insufficient overlap ({1:.2f} < {2:.2f})".format(
+                        r["page"], overlap, min_token_overlap))
+    feedback = "; ".join(feedback_parts) if feedback_parts else None
+
     return {
         "grounding_verified": grounding_verified,
         "confidence": round(confidence, 4),
         "verification_results": results,
         "verification_reason": reason,
+        "failed_citations": failed_pages,
+        "feedback": feedback,
     }

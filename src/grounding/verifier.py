@@ -99,9 +99,25 @@ def verify_grounded_answer(
     if any(r.get("reason") == "page_not_retrieved" for r in results):
         reason = "citation_outside_retrieval"
 
+    # Build structured feedback for retry
+    failed_pages = [r["page"] for r in results if not r.get("supported", False)]
+    feedback_parts = []
+    if failed_pages:
+        feedback_parts.append("Failed pages: {0}".format(", ".join("p.{0}".format(p) for p in failed_pages)))
+        for r in results:
+            if not r.get("supported", False):
+                raw = r.get("raw_response", "")
+                if r.get("reason") == "page_not_retrieved":
+                    feedback_parts.append("Page {0}: not in retrieved set".format(r["page"]))
+                elif "NO" in raw.upper():
+                    feedback_parts.append("Page {0}: VLM determined no evidence".format(r["page"]))
+    feedback = "; ".join(feedback_parts) if feedback_parts else None
+
     return {
         "grounding_verified": grounding_verified,
         "confidence": round(confidence, 4),
         "verification_results": results,
         "verification_reason": reason,
+        "failed_citations": failed_pages,
+        "feedback": feedback,
     }

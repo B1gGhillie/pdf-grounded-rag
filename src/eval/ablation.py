@@ -112,6 +112,81 @@ ABLATION_CONFIGS = {
         "grounding": {"enabled": False},
         "refusal": {"enabled": False},
     },
+    # Retry ablations (CaVe-VLM-CoT-inspired)
+    "full_with_retry": {
+        "method": "full",
+        "grounding": {"enabled": True, "verify": True},
+        "refusal": {
+            "enabled": True,
+            "use_retrieval_gate": True,
+            "use_model_refusal": True,
+            "use_citation_gate": True,
+            "use_grounding_gate": True,
+        },
+        "retry": {
+            "max_retry": 2,
+            "strategy": "increase_top_k",
+            "top_k_increment": 2,
+            "retryable_reasons": ["grounding_failed"],
+        },
+    },
+    "retry_grounding_only": {
+        "method": "full",
+        "grounding": {"enabled": True, "verify": True},
+        "refusal": {
+            "enabled": True,
+            "use_retrieval_gate": False,
+            "use_model_refusal": False,
+            "use_citation_gate": False,
+            "use_grounding_gate": True,
+        },
+        "retry": {
+            "max_retry": 2,
+            "strategy": "increase_top_k",
+            "top_k_increment": 2,
+            "retryable_reasons": ["grounding_failed"],
+        },
+    },
+    "retry_all_signals": {
+        "method": "full",
+        "grounding": {"enabled": True, "verify": True},
+        "refusal": {
+            "enabled": True,
+            "use_retrieval_gate": True,
+            "use_model_refusal": True,
+            "use_citation_gate": True,
+            "use_grounding_gate": True,
+        },
+        "retry": {
+            "max_retry": 2,
+            "strategy": "increase_top_k",
+            "top_k_increment": 2,
+            "retryable_reasons": ["grounding_failed", "retrieval_miss", "no_citations"],
+        },
+    },
+    "demo_full_with_retry": {
+        "method": "full",
+        "runtime": {
+            "visual_backend": "clip",
+            "generation_backend": "extractive",
+            "demo_mode": True,
+        },
+        "grounding": {"enabled": True, "verify": True, "verify_mode": "lexical"},
+        "refusal": {
+            "enabled": True,
+            "score_threshold": 0.05,
+            "use_retrieval_gate": True,
+            "use_model_refusal": True,
+            "use_citation_gate": True,
+            "use_grounding_gate": True,
+        },
+        "retry": {
+            "max_retry": 2,
+            "strategy": "increase_top_k",
+            "top_k_increment": 2,
+            "retryable_reasons": ["grounding_failed"],
+        },
+    },
 }
 
 
@@ -127,7 +202,7 @@ def apply_ablation_config(base_cfg, ablation_name):
 
     if "method" in overrides:
         cfg["_method"] = overrides["method"]
-    for section in ("grounding", "refusal", "retrieval", "runtime", "generation"):
+    for section in ("grounding", "refusal", "retrieval", "runtime", "generation", "retry"):
         if section in overrides:
             cfg.setdefault(section, {}).update(overrides[section])
     return cfg

@@ -111,11 +111,15 @@ def score_prediction(prediction, gold):
     gold_answerable = gold.get("answerable", True)
     predicted_refused = prediction.get("refused", False) or not prediction.get("answerable", True)
 
+    retry_meta = prediction.get("retry_metadata") or {}
     metrics = {
         "id": gold.get("id"),
         "method": prediction.get("method"),
         "refusal_reason": prediction.get("refusal_reason")
         or (prediction.get("refusal") or {}).get("refusal_reason"),
+        "retry_attempts": retry_meta.get("attempt"),
+        "retry_triggered": int(bool(retry_meta.get("retry_triggered"))) if retry_meta else None,
+        "retry_exhausted": int(bool(retry_meta.get("retry_exhausted"))) if retry_meta else None,
     }
     metrics.update(score_refusal(predicted_refused, gold_answerable))
 
@@ -201,4 +205,7 @@ def aggregate_metrics(per_item_metrics):
         "refusal_recall": refusal_recall,
         "refusal_f1": refusal_f1,
         "refusal_reason_counts": reason_counts,
+        "avg_retry_attempts": _avg("retry_attempts"),
+        "retry_triggered_rate": _avg("retry_triggered"),
+        "retry_exhausted_rate": _avg("retry_exhausted"),
     }

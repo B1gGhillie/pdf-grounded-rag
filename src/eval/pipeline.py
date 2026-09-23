@@ -9,6 +9,7 @@ from src.eval.ablation import apply_ablation_config, list_ablation_configs
 from src.eval.dataset_loader import load_eval_dataset
 from src.eval.metrics import aggregate_metrics, score_prediction
 from src.pipeline.rag_pipeline import run_rag
+from src.pipeline.rag_retry import run_rag_with_retry
 
 
 def _resolve_method(cfg, method_override=None):
@@ -42,9 +43,13 @@ def run_benchmark(
 
     predictions = []
     method = _resolve_method(cfg, method)
+    
+    # Use retry wrapper if retry is configured
+    retry_enabled = cfg.get("retry", {}).get("max_retry", 0) > 0
+    rag_fn = run_rag_with_retry if retry_enabled else run_rag
 
     for item in tqdm(items, desc="eval {0}".format(method)):
-        pred = run_rag(
+        pred = rag_fn(
             item["pdf_path"],
             item["question"],
             cfg,

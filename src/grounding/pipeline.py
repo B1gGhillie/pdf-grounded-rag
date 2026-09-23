@@ -59,14 +59,21 @@ def apply_grounding(
         "confidence": 0.0,
         "verification_results": [],
         "verification_reason": None,
+        "failed_citations": [],
+        "feedback": None,
     }
 
     if not cited_pages:
         result["verification_reason"] = "no_citations"
+        result["feedback"] = "No [p.N] citations found in the answer."
         return result
 
     if not citations_valid:
         result["verification_reason"] = "citation_outside_retrieval"
+        result["failed_citations"] = invalid_citations
+        result["feedback"] = "Cited pages not in retrieved set: {0}".format(
+            ", ".join("p.{0}".format(p) for p in invalid_citations)
+        )
         return result
 
     if not grounding_cfg.get("verify", True):
