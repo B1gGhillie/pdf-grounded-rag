@@ -18,27 +18,28 @@ def _load_visual_embeddings(page_paths, cfg, doc_index, visual_backend, fresh):
     if visual_backend in (None, "none"):
         return None
 
-    emb_name = "visual_embeddings_clip.pt" if visual_backend == "clip" else "visual_embeddings.pt"
+    # Each backend gets an independent signature so rebuilding the text index
+    # cannot accidentally bless stale vectors from another backend.
+    manifest = doc_index.load_manifest() or {}
+    signature = manifest.get("fingerprint", "legacy")
+    emb_name = f"visual_{visual_backend}_{signature}.pt"
 
     if cache_visual and fresh:
-        if visual_backend == "colpali":
-            emb = doc_index.load_visual_embeddings()
-            if emb is not None:
-                return emb
-        else:
-            path = doc_index.root / emb_name
-            if path.exists():
-                import torch
-
-                return torch.load(path, weights_only=True)
+        path = doc_index.root / emb_name
+        if path.exists():
+            import torch
+            return torch.load(path, weights_only=True, map_location="cpu")
 
     if visual_backend == "colpali":
         from src.retrieval.colpali_retriever import ColPaliRetriever
 
-        retriever = ColPaliRetriever(model_name=cfg["retrieval"]["model"])
+        retriever = ColPaliRetriever(model_name=cfg["retrieval"]["model"],
+                                    device=cfg.get("runtime", {}).get("device"),
+                                    revision=cfg["retrieval"].get("model_revision"))
         embeddings = retriever.embed_pages(page_paths)
         if cache_visual:
-            doc_index.save_visual_embeddings(embeddings)
+            import torch
+            torch.save(embeddings.cpu(), doc_index.root / emb_name)
         del retriever
         return embeddings
 
@@ -46,7 +47,8 @@ def _load_visual_embeddings(page_paths, cfg, doc_index, visual_backend, fresh):
         from src.retrieval.clip_retriever import CLIPRetriever
 
         model_name = cfg["retrieval"].get("clip_model", "openai/clip-vit-base-patch32")
-        retriever = CLIPRetriever(model_name=model_name)
+        retriever = CLIPRetriever(model_name=model_name, device=cfg.get("runtime", {}).get("device"),
+                                 revision=cfg["retrieval"].get("clip_revision"))
         embeddings = retriever.embed_pages(page_paths)
         if cache_visual:
             import torch
@@ -70,15 +72,21 @@ def ingest_document(pdf_path, cfg, doc_index=None, force_rebuild=False, visual_b
     """
     pdf_path = str(Path(pdf_path).resolve())
     dpi = cfg["pdf"]["dpi"]
-    max_pages = cfg["pdf"].get("max_pages_per_doc", 50)
+    max_pages = cfg["pdf"].get("max_pages_per_doc")
 
     if doc_index is None:
-        doc_index = DocumentIndex(Path(pdf_path).stem)
+        from src.utils.config import doc_id_from_pdf
+        doc_index = DocumentIndex(doc_id_from_pdf(pdf_path))
 
+    signature = doc_index.fingerprint(pdf_path, cfg)
+    # Different OCR/model/render profiles must never overwrite each other's
+    # pages or manifests (including concurrent CPU and GPU experiments).
+    doc_index = DocumentIndex(signature[:24], cache_dir=doc_index.root)
     page_dir = doc_index.root / "pages"
-    fresh = doc_index.is_fresh(pdf_path, dpi, max_pages) and not force_rebuild
+    manifest = doc_index.load_manifest() or {}
+    fresh = manifest.get("ready") is True and manifest.get("fingerprint") == signature and not force_rebuild
 
-    if fresh and (page_dir / "page_0001.png").exists():
+    if fresh and manifest.get("page_paths") and all(Path(p).exists() for p in manifest["page_paths"]):
         manifest = doc_index.load_manifest()
         page_paths = manifest["page_paths"]
     else:
@@ -92,6 +100,8 @@ def ingest_document(pdf_path, cfg, doc_index=None, force_rebuild=False, visual_b
                 "page_paths": page_paths,
                 "num_pages": len(page_paths),
                 "visual_backend": visual_backend,
+                "fingerprint": signature,
+                "ready": False,
             }
         )
         fresh = False
@@ -105,11 +115,17 @@ def ingest_document(pdf_path, cfg, doc_index=None, force_rebuild=False, visual_b
             fresh = False
 
     if not fresh or bm25.bm25 is None:
-        text_chunks = pdf_to_text_chunks(pdf_path, max_pages=max_pages)
+        text_chunks = pdf_to_text_chunks(pdf_path, max_pages=max_pages, **{
+            key: cfg["pdf"][key] for key in ("text_mode", "ocr_language", "ocr_dpi", "tessdata", "min_native_chars")
+            if key in cfg["pdf"]
+        })
         bm25.build_index(page_paths, text_chunks)
         doc_index.save_bm25(bm25.dump_state())
 
     visual_embeddings = _load_visual_embeddings(
         page_paths, cfg, doc_index, visual_backend, fresh
     )
+    manifest = doc_index.load_manifest()
+    manifest["ready"] = True
+    doc_index.save_manifest(manifest)
     return page_paths, bm25, visual_embeddings, bm25.get_text_densities()

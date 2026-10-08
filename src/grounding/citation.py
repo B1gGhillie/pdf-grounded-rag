@@ -15,9 +15,11 @@ def page_number_from_hit(hit):
 
 def is_unanswerable(answer):
     """Detect legacy UNANSWERABLE or structured refusal in model output."""
-    text = answer.strip()
+    text = (answer or "").strip()
     upper = text.upper()
     if upper == "UNANSWERABLE" or upper.startswith("UNANSWERABLE"):
+        return True
+    if text.rstrip("。.!！") in {"无法回答", "证据不足", "文档未提供相关信息"}:
         return True
     return any(marker in text for marker in UNANSWERABLE_MARKERS)
 

@@ -1,14 +1,32 @@
 """Tests for runtime backend selection."""
 
-import sys
-from pathlib import Path
+import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from src.utils.runtime import choose_backends
+from src.utils import runtime
 
 
-def test_choose_backends_respects_explicit_config():
+pytestmark = pytest.mark.unit
+
+
+def _patch_runtime_probe(monkeypatch):
+    monkeypatch.setattr(
+        runtime,
+        "probe_heavy_models",
+        lambda: {
+            "colpali": True,
+            "vlm": True,
+            "clip": True,
+            "extractive": True,
+            "free_ram_gb": 32.0,
+            "free_vram_gb": 12.0,
+            "reasons": [],
+        },
+    )
+    monkeypatch.setattr(runtime, "resolve_device", lambda preferred: "cpu")
+
+
+def test_choose_backends_respects_explicit_config(monkeypatch):
+    _patch_runtime_probe(monkeypatch)
     cfg = {
         "runtime": {
             "visual_backend": "clip",
@@ -16,13 +34,14 @@ def test_choose_backends_respects_explicit_config():
             "device": "cpu",
         }
     }
-    backends = choose_backends(cfg)
+    backends = runtime.choose_backends(cfg)
     assert backends["visual_backend"] == "clip"
     assert backends["generation_backend"] == "extractive"
     assert backends["device"] == "cpu"
 
 
-def test_demo_mode_forces_extractive():
+def test_demo_mode_forces_extractive_and_clip(monkeypatch):
+    _patch_runtime_probe(monkeypatch)
     cfg = {
         "runtime": {
             "visual_backend": "colpali",
@@ -30,6 +49,6 @@ def test_demo_mode_forces_extractive():
             "demo_mode": True,
         }
     }
-    backends = choose_backends(cfg)
+    backends = runtime.choose_backends(cfg)
     assert backends["generation_backend"] == "extractive"
-    assert backends["visual_backend"] in ("clip", "none")
+    assert backends["visual_backend"] == "clip"

@@ -1,21 +1,33 @@
 retrieval:
   model: vidore/colpali-v1.3-hf
   clip_model: openai/clip-vit-base-patch32
+  clip_revision: 3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268
   top_k: 5
+  candidate_k: 20
   cache_visual_embeddings: true
   # Adaptive hybrid fusion: per-page text weight in [min, max]
   fusion:
+    mode: reliability
+    text_scale: 8.0
+    visual_scale: 20.0
     min_text_weight: 0.25
     max_text_weight: 0.75
 
 generation:
   model: Qwen/Qwen2-VL-2B-Instruct
+  revision: 895c3a49bc3fa70a340399125c650a463535e71c
+  use_text_evidence: true
+  max_context_chars_per_page: 800
   max_new_tokens: 512
   load_in_4bit: false
 
 pdf:
   dpi: 144
-  max_pages_per_doc: 50
+  max_pages_per_doc: null
+  text_mode: native  # auto/ocr require chi_sim+eng language data; see docs/research_design.md
+  ocr_language: chi_sim+eng
+  ocr_dpi: 200
+  tessdata: data/tessdata
 
 # Runtime backends. "auto" picks ColPali/VLM when RAM/VRAM is enough,
 # otherwise falls back to CLIP visual + extractive generation (laptop-safe).
@@ -29,13 +41,15 @@ runtime:
 grounding:
   enabled: true
   cite_format: "[p.{page}]"
+  repair_missing_citations: false
+  granularity: claim
   verify: true
   verification_threshold: 0.5
   verify_mode: auto          # auto | vlm | lexical
-  lexical_min_overlap: 0.25
+  lexical_min_overlap: 0.6
 
 # Phase 3: multi-signal refusal
-# score_threshold applies to absolute fused_score (post-fusion, typically [0,1])
+# Illustrative threshold on evidence_confidence; fit on disjoint DEV PDFs for research.
 refusal:
   enabled: true
   score_threshold: 0.25
@@ -45,3 +59,14 @@ refusal:
   use_model_refusal: true
   use_citation_gate: true
   use_grounding_gate: true
+
+retry:
+  max_retry: 0
+  strategy: evidence_budget
+  top_k_increment: 2
+  max_top_k: 9
+  max_total_pages: 21
+  retryable_reasons: [retrieval_miss, no_citations, grounding_failed]
+
+evaluation:
+  seed: 42

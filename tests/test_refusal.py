@@ -3,10 +3,15 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.refusal.decision import apply_refusal
 from src.refusal.score_gate import max_retrieval_score, score_margin, should_refuse_retrieval
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_absolute_score_not_forced_to_one():

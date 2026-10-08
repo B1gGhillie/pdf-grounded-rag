@@ -19,15 +19,15 @@ def _as_embed_tensor(feats):
     raise TypeError("Unsupported CLIP feature type: {0}".format(type(feats)))
 
 
-def _load_clip(model_name, device):
-    key = (model_name, device)
+def _load_clip(model_name, device, revision=None):
+    key = (model_name, device, revision)
     if key in _CLIP_CACHE:
         return _CLIP_CACHE[key]
     from transformers import CLIPModel, CLIPProcessor
 
-    processor = CLIPProcessor.from_pretrained(model_name)
+    processor = CLIPProcessor.from_pretrained(model_name, revision=revision)
     dtype = torch.float16 if device == "cuda" else torch.float32
-    model = CLIPModel.from_pretrained(model_name, torch_dtype=dtype)
+    model = CLIPModel.from_pretrained(model_name, torch_dtype=dtype, revision=revision)
     model.to(device).eval()
     _CLIP_CACHE[key] = (model, processor, dtype)
     return _CLIP_CACHE[key]
@@ -36,9 +36,9 @@ def _load_clip(model_name, device):
 class CLIPRetriever:
     """Encode page images + queries with CLIP and rank by cosine similarity."""
 
-    def __init__(self, model_name="openai/clip-vit-base-patch32", device=None):
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model, self.processor, self.dtype = _load_clip(model_name, self.device)
+    def __init__(self, model_name="openai/clip-vit-base-patch32", device=None, revision=None):
+        self.device = device if device and device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
+        self.model, self.processor, self.dtype = _load_clip(model_name, self.device, revision)
 
     @torch.no_grad()
     def embed_pages(self, page_image_paths, batch_size=8):

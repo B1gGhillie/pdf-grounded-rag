@@ -3,9 +3,14 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.retrieval.hybrid_fusion import fuse_retrieval
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_fusion_prefers_text_on_dense_page():
@@ -15,7 +20,8 @@ def test_fusion_prefers_text_on_dense_page():
     ]
     text_hits = [
         {"page_index": 0, "page_path": "p0.png", "score": 0.2, "text_snippet": "sparse"},
-        {"page_index": 1, "page_path": "p1.png", "score": 0.95, "text_snippet": "dense text"},
+        # BM25 is an unbounded raw score, not a cosine in [0, 1].
+        {"page_index": 1, "page_path": "p1.png", "score": 40.0, "text_snippet": "dense text"},
     ]
     densities = {0: 50, 1: 5000}
 

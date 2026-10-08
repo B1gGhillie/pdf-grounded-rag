@@ -11,18 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 class ColPaliRetriever:
-    def __init__(self, model_name="vidore/colpali-v1.3-hf", device=None, torch_dtype=None):
+    def __init__(self, model_name="vidore/colpali-v1.3-hf", device=None, torch_dtype=None, revision=None):
         from transformers import ColPaliForRetrieval, ColPaliProcessor
 
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device if device and device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
         if torch_dtype is None:
             torch_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
 
-        self.processor = ColPaliProcessor.from_pretrained(model_name)
+        self.processor = ColPaliProcessor.from_pretrained(model_name, revision=revision)
         # Load weights straight onto target device when possible to cut CPU RAM spike.
         try:
             self.model = ColPaliForRetrieval.from_pretrained(
                 model_name,
+                revision=revision,
                 torch_dtype=torch_dtype,
                 low_cpu_mem_usage=True,
                 device_map=self.device if self.device != "cpu" else None,
@@ -33,17 +34,21 @@ class ColPaliRetriever:
             logger.warning("ColPali device_map load failed (%s); retrying plain .to()", exc)
             self.model = ColPaliForRetrieval.from_pretrained(
                 model_name,
+                revision=revision,
                 torch_dtype=torch_dtype,
                 low_cpu_mem_usage=True,
             ).to(self.device)
         self.model.eval()
 
     @torch.no_grad()
-    def embed_pages(self, page_image_paths):
+    def embed_pages(self, page_image_paths, batch_size=1):
         """Pre-compute visual embeddings for all pages (cacheable)."""
-        images = [Image.open(p).convert("RGB") for p in page_image_paths]
-        inputs = self.processor(images=images).to(self.device)
-        return self.model(**inputs).embeddings
+        vectors = []
+        for start in range(0, len(page_image_paths), batch_size):
+            images = [Image.open(p).convert("RGB") for p in page_image_paths[start:start+batch_size]]
+            inputs = self.processor(images=images).to(self.device)
+            vectors.append(self.model(**inputs).embeddings.cpu())
+        return torch.cat(vectors)
 
     @torch.no_grad()
     def _score_pages(self, query, page_image_paths, cached_embeddings=None):
@@ -51,13 +56,14 @@ class ColPaliRetriever:
         query_embeddings = self.model(**inputs_text).embeddings
 
         if cached_embeddings is not None:
-            image_embeddings = cached_embeddings.to(self.device)
+            image_embeddings = cached_embeddings
         else:
-            images = [Image.open(p).convert("RGB") for p in page_image_paths]
-            inputs_images = self.processor(images=images).to(self.device)
-            image_embeddings = self.model(**inputs_images).embeddings
-
-        return self.processor.score_retrieval(query_embeddings, image_embeddings)[0]
+            image_embeddings = self.embed_pages(page_image_paths)
+        scores = []
+        for start in range(0, len(image_embeddings), 8):
+            batch = image_embeddings[start:start+8].to(self.device)
+            scores.append(self.processor.score_retrieval(query_embeddings, batch)[0].cpu())
+        return torch.cat(scores)
 
     @torch.no_grad()
     def retrieve(self, query, page_image_paths, top_k=5, cached_embeddings=None):

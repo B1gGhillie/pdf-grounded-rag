@@ -1,0 +1,50 @@
+# Reproducible Chinese native/scanned-document regression without model downloads.
+# Install OCR data with scripts/setup_ocr.ps1 before processing scanned PDFs.
+retrieval:
+  top_k: 3
+  candidate_k: 20
+  cache_visual_embeddings: true
+  fusion:
+    mode: reliability
+    text_scale: 8.0
+    visual_scale: 20.0
+    min_text_weight: 0.25
+    max_text_weight: 0.75
+generation:
+  max_new_tokens: 192
+pdf:
+  dpi: 120
+  max_pages_per_doc: null
+  text_mode: auto
+  ocr_language: chi_sim+eng
+  ocr_dpi: 200
+  tessdata: data/tessdata
+  min_native_chars: 30
+runtime:
+  visual_backend: none
+  generation_backend: extractive
+  device: cpu
+  demo_mode: true
+grounding:
+  enabled: true
+  verify: true
+  verify_mode: lexical
+  granularity: claim
+  repair_missing_citations: false
+  lexical_min_overlap: 0.6
+refusal:
+  enabled: true
+  score_threshold: 0.05
+  use_retrieval_gate: true
+  use_model_refusal: true
+  use_citation_gate: true
+  use_grounding_gate: true
+retry:
+  max_retry: 0
+  strategy: evidence_budget
+  top_k_increment: 2
+  max_top_k: 5
+  max_total_pages: 8
+  retryable_reasons: [retrieval_miss, no_citations, grounding_failed]
+evaluation:
+  seed: 42

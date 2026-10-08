@@ -7,7 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.pipeline.rag_pipeline import run_rag
+from src.pipeline.rag_retry import run_rag_with_retry
+from src.eval.provenance import atomic_json
 from src.utils.config import load_config
 
 
@@ -20,10 +21,13 @@ def main():
         "--method",
         type=str,
         default="full",
-        choices=["full", "hybrid", "visual", "ocr"],
+        choices=["full", "hybrid", "visual", "ocr", "text"],
         help="Pipeline variant",
     )
     parser.add_argument("--force-rebuild", action="store_true")
+    parser.add_argument("--output", help="Save complete evidence and verification trace as JSON")
+    parser.add_argument("--max-retry", type=int, help="Override bounded retry count")
+    parser.add_argument("--calibration", help="Frozen dev threshold artifact (single-pass)")
     parser.add_argument("--no-grounding", action="store_true")
     parser.add_argument("--no-refusal", action="store_true")
     parser.add_argument("--no-verify", action="store_true")
@@ -41,6 +45,10 @@ def main():
 
     config_path = "configs/laptop.yaml" if args.config_laptop else args.config
     cfg = load_config(config_path)
+    if args.max_retry is not None:
+        cfg.setdefault("retry", {})["max_retry"] = args.max_retry
+    if args.calibration:
+        cfg.setdefault("refusal", {})["calibration_path"] = args.calibration
     if args.demo or args.config_laptop:
         cfg.setdefault("runtime", {})["demo_mode"] = True
         cfg["runtime"]["visual_backend"] = cfg["runtime"].get("visual_backend") or "clip"
@@ -55,13 +63,15 @@ def main():
         cfg.setdefault("refusal", {})["use_grounding_gate"] = False
 
     method = "demo" if args.demo else args.method
-    result = run_rag(
+    result = run_rag_with_retry(
         args.pdf,
         args.question,
         cfg,
         method=method,
         force_rebuild=args.force_rebuild,
     )
+    if args.output:
+        atomic_json(args.output, result)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

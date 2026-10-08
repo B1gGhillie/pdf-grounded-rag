@@ -1,0 +1,71 @@
+# RTX 3060 6GB profile: real CUDA VLM inference with compact retrieval.
+# It intentionally uses CLIP rather than ColPali, whose ~3B parameters exceed
+# the available VRAM once the Qwen2-VL generator is loaded.
+retrieval:
+  model: vidore/colpali-v1.3-hf
+  clip_model: openai/clip-vit-base-patch32
+  clip_revision: 3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268
+  top_k: 3
+  candidate_k: 20
+  cache_visual_embeddings: true
+  fusion:
+    mode: reliability
+    text_scale: 8.0
+    visual_scale: 20.0
+    min_text_weight: 0.25
+    max_text_weight: 0.75
+
+generation:
+  model: Qwen/Qwen2-VL-2B-Instruct
+  revision: 895c3a49bc3fa70a340399125c650a463535e71c
+  use_text_evidence: true
+  max_context_chars_per_page: 800
+  max_new_tokens: 192
+  load_in_4bit: true
+
+pdf:
+  dpi: 120
+  max_pages_per_doc: null
+  text_mode: native
+  ocr_language: chi_sim+eng
+  ocr_dpi: 200
+  tessdata: data/tessdata
+
+runtime:
+  visual_backend: clip
+  generation_backend: vlm
+  device: cuda
+  demo_mode: false
+
+grounding:
+  enabled: true
+  cite_format: "[p.{page}]"
+  # Small VLMs may omit citations. Repair requires text support and VLM verification.
+  # Research ablations turn this off unless explicitly testing attribution.
+  repair_missing_citations: true
+  granularity: claim
+  verify: true
+  verification_threshold: 0.5
+  verify_mode: vlm
+  lexical_min_overlap: 0.6
+
+refusal:
+  enabled: true
+  score_threshold: 0.25
+  demo_score_threshold: 0.05
+  margin_threshold: null
+  use_retrieval_gate: true
+  use_model_refusal: true
+  use_citation_gate: true
+  use_grounding_gate: true
+
+retry:
+  max_retry: 0
+  strategy: evidence_budget
+  top_k_increment: 2
+  max_top_k: 5
+  max_total_pages: 8
+  retryable_reasons: [retrieval_miss, no_citations, grounding_failed]
+
+evaluation:
+  seed: 42

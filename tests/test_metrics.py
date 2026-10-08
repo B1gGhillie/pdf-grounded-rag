@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.eval.metrics import (
@@ -11,6 +13,9 @@ from src.eval.metrics import (
     score_prediction,
     token_f1,
 )
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_token_f1_and_citation_metrics():

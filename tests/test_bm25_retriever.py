@@ -3,9 +3,14 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.retrieval.bm25_retriever import BM25Retriever
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_bm25_retrieve_relevant_page():

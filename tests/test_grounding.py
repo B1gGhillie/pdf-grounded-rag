@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.grounding.citation import (
@@ -12,6 +14,9 @@ from src.grounding.citation import (
     validate_citations_in_retrieval,
 )
 from src.grounding.pipeline import apply_grounding
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_extract_and_strip_citations():

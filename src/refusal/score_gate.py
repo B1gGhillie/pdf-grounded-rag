@@ -1,13 +1,17 @@
 """Retrieval-score gate for pre-generation refusal.
 
-Uses absolute fused/raw scores (already channel-normalized by hybrid fusion).
+Uses evidence_confidence (a monotone absolute score, not a probability).
 Do NOT re-normalize within Top-K: min-max over Top-K forces max≈1.0 whenever
 any hit exists, which disables the retrieval gate.
 """
+import math
 
 
 def _hit_score(hit):
-    return float(hit.get("fused_score", hit.get("score", 0.0)))
+    value = float(hit.get("evidence_confidence", hit.get("fused_score", hit.get("score", 0.0))))
+    if not math.isfinite(value):
+        raise ValueError("Non-finite evidence confidence")
+    return value
 
 
 def max_retrieval_score(retrieved_hits):

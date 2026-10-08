@@ -106,6 +106,8 @@ def choose_backends(cfg):
     runtime = cfg.get("runtime", {})
     visual = (runtime.get("visual_backend") or "auto").lower()
     generation = (runtime.get("generation_backend") or "auto").lower()
+    if visual not in {"auto", "colpali", "clip", "none"} or generation not in {"auto", "vlm", "extractive"}:
+        raise ValueError("Unknown runtime backend; specify an available backend explicitly")
     probe = probe_heavy_models()
 
     if visual == "auto":
@@ -115,7 +117,6 @@ def choose_backends(cfg):
 
     # Forced demo mode
     if runtime.get("demo_mode"):
-        visual = "none" if visual == "colpali" else visual
         if visual == "colpali":
             visual = "clip"
         generation = "extractive"

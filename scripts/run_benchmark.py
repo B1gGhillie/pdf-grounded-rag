@@ -20,10 +20,13 @@ def main():
         "--method",
         type=str,
         default="full",
-        choices=["full", "hybrid", "visual", "ocr", "demo"],
+        choices=["full", "hybrid", "visual", "ocr", "text", "demo"],
     )
     parser.add_argument("--ablation", type=str, default=None, help="Run named ablation config")
     parser.add_argument("--ablation-all", action="store_true", help="Run all ablation configs")
+    parser.add_argument("--suite", choices=["research", "demo", "all"], default="research")
+    parser.add_argument("--calibration", help="Frozen DEV threshold artifact; test PDFs must be disjoint")
+    parser.add_argument("--no-retrieval-gate", action="store_true", help="Generate candidates for DEV threshold fitting")
     parser.add_argument(
         "--ablation-demo",
         action="store_true",
@@ -37,6 +40,11 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config("configs/laptop.yaml" if args.laptop else args.config)
+    if args.calibration:
+        cfg.setdefault("refusal", {})["calibration_path"] = args.calibration
+    if args.no_retrieval_gate:
+        cfg.setdefault("refusal", {})["use_retrieval_gate"] = False
+        cfg.setdefault("evaluation", {})["disable_retrieval_gate"] = True
     if args.laptop or args.method == "demo":
         cfg.setdefault("runtime", {})["demo_mode"] = True
         cfg["runtime"]["visual_backend"] = cfg["runtime"].get("visual_backend") or "clip"
@@ -49,7 +57,7 @@ def main():
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         suite = {}
-        for name in [k for k in ABLATION_CONFIGS if k.startswith("demo_")]:
+        for name in list_ablation_configs("demo"):
             acfg = _apply(cfg, name)
             method = acfg.get("_method", "full")
             suite[name] = _run(
@@ -73,6 +81,7 @@ def main():
             args.output_dir,
             limit=args.limit,
             force_rebuild=args.force_rebuild,
+            suite=args.suite,
         )
         print(json.dumps({k: v["summary"] for k, v in suite.items()}, ensure_ascii=False, indent=2))
         return

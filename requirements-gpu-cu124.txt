@@ -1,0 +1,10 @@
+# Reproducible Windows/NVIDIA GPU environment for Python 3.10.
+# The PyTorch CUDA index supplies the matching torch and torchvision wheels;
+# PyPI remains available for the project's remaining dependencies.
+--index-url https://download.pytorch.org/whl/cu124
+--extra-index-url https://pypi.org/simple
+
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+bitsandbytes>=0.43.0
+-r requirements.txt

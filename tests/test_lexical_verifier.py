@@ -3,10 +3,15 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.grounding.lexical_verifier import verify_grounded_answer_lexical
 from src.grounding.pipeline import apply_grounding
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_lexical_verify_passes_on_overlapping_snippet():

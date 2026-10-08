@@ -16,6 +16,10 @@ METRIC_KEYS = [
     "count",
     "em",
     "f1",
+    "end_to_end_accuracy",
+    "coverage",
+    "selective_risk",
+    "unanswerable_answer_rate",
     "page_recall@k",
     "page_precision@k",
     "citation_f1",
@@ -24,6 +28,8 @@ METRIC_KEYS = [
     "refusal_precision",
     "refusal_recall",
     "refusal_f1",
+    "mean_latency_seconds",
+    "retry_triggered_rate",
 ]
 
 
@@ -31,7 +37,7 @@ def _load_summary(path):
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     if "summary" in data:
-        return data.get("method") or Path(path).stem, data["summary"]
+        return Path(path).stem, data["summary"]
     # ablation_summary.json style: {name: summary}
     if all(isinstance(v, dict) for v in data.values()):
         return None, data
@@ -54,6 +60,8 @@ def collect_summaries(input_path=None, input_dir=None):
             rows.update(payload)
         else:
             for path in sorted(input_dir.glob("*.json")):
+                if path.name.endswith(".partial.json"):
+                    continue
                 name, payload = _load_summary(path)
                 if name is None:
                     rows.update(payload)
@@ -95,12 +103,12 @@ def to_csv(rows):
 def main():
     parser = argparse.ArgumentParser(description="Build experiment comparison tables")
     parser.add_argument("--input", type=str, default=None)
-    parser.add_argument("--input-dir", type=str, default="results/ablation")
+    parser.add_argument("--input-dir", type=str, default=None)
     parser.add_argument("--markdown", type=str, default="results/ablation_report.md")
     parser.add_argument("--csv", type=str, default="results/ablation_report.csv")
     args = parser.parse_args()
 
-    rows = collect_summaries(args.input, args.input_dir)
+    rows = collect_summaries(args.input, args.input_dir or (None if args.input else "results/ablation"))
     if not rows:
         raise SystemExit("No result summaries found.")
 

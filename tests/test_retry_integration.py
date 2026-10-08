@@ -8,12 +8,17 @@ run_rag_with_retry) without depending on a real PDF, index, or model.
 import copy
 from unittest.mock import patch
 
+import pytest
+
 from src.eval.ablation import apply_ablation_config
 from src.pipeline.rag_retry import (
     _adjust_retrieval_params,
     _should_retry,
     run_rag_with_retry,
 )
+
+
+pytestmark = pytest.mark.integration
 
 
 def _base_cfg(max_retry=1):
@@ -119,7 +124,7 @@ def test_run_rag_with_retry_succeeds_on_second_attempt():
     assert mock_run_rag.call_count == 2
     assert result["answerable"] is True
     assert result["retry_metadata"]["attempt"] == 1
-    assert result["retry_metadata"]["retry_triggered"] is False
+    assert result["retry_metadata"]["retry_triggered"] is True
 
 
 def test_run_rag_with_retry_exhausts_and_returns_last_failure():
@@ -176,3 +181,30 @@ def test_retry_all_signals_ablation_config():
         "retrieval_miss",
         "no_citations",
     }
+
+
+def test_budget_exhaustion_prevents_extra_inference():
+    cfg = _base_cfg(max_retry=2)
+    cfg["retry"].update(strategy="evidence_budget", max_total_pages=5)
+    refused = _grounding_failed_result()
+    refused["retrieved_pages"] = [{"page_number": p} for p in (1, 2, 3)]
+    with patch("src.pipeline.rag_retry.run_rag", return_value=refused) as run:
+        result = run_rag_with_retry("x.pdf", "?", cfg)
+    assert run.call_count == 1
+    assert result["retry_metadata"]["stop_reason"] == "page_budget"
+
+
+def test_missing_citation_retry_preserves_context_and_passes_feedback():
+    cfg = _base_cfg(max_retry=1)
+    cfg["retry"].update(strategy="evidence_budget", retryable_reasons=["no_citations"])
+    refused = {"refused": True, "refusal_reason": "no_citations", "grounding": {"feedback": "Cite each claim"}}
+    with patch("src.pipeline.rag_retry.run_rag", side_effect=[refused, _success_result()]) as run:
+        run_rag_with_retry("x.pdf", "?", cfg)
+    second = run.call_args_list[1].args[2]
+    assert second["retrieval"]["top_k"] == 3
+    assert second["generation"]["retry_feedback"] == "Cite each claim"
+    assert "generation" not in cfg
+
+
+def test_retrieval_miss_does_not_need_nonexistent_generation_feedback():
+    assert _should_retry({"refused": True, "refusal_reason": "retrieval_miss"}, {"retryable_reasons": ["retrieval_miss"]})
