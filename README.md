@@ -1,8 +1,8 @@
 ﻿# PDF-Grounded RAG
 
-面向中文行业文档与学位论文的多模态 RAG：查询与文本可靠性调节的检索融合、断言与页引用绑定核验、多信号拒答和有预算的反馈重试。
+面向长篇 PDF 的多模态 RAG，支持中文行业文档与学位论文：查询与文本可靠性调节的检索融合、断言与页引用绑定核验、多信号拒答和有预算的反馈重试。
 
-研究方法、已有工作对照、创新边界和真实数据实验步骤见 [研究设计](docs/research_design.md)。目前样例仅用于软件回归，尚不能证明真实数据上的性能提升。
+项目主数据集采用官方 **MMLongBench-Doc**，不限制中文。研究方法、已有工作对照及创新边界见 [研究设计](docs/research_design.md)，数据导入和实验口径见 [数据集说明](docs/mmlongbench_dataset.md)。合成样例仅用于软件回归，数据导入完成本身不证明方法有效。
 
 ## 核心能力
 
@@ -145,9 +145,39 @@ GPU 配置默认原生文本；扫描件需设置 `pdf.text_mode: auto` 和 `pdf
 ## MMLongBench-Doc
 
 ```bash
-python scripts/prepare_mmlongbench.py --from-json path/to/raw.json --pdf-root data/pdfs/mmlongbench --output data/eval/mmlongbench_subset.json --limit 100
-python scripts/prepare_mmlongbench.py --from-hf --limit 50
+pip install -r requirements-data.txt
+# 下载固定版本的全部 PDF 与原始标注，校验并导出 full/dev/test/smoke
+python scripts/prepare_mmlongbench.py --from-hf
+
+# 已有下载文件时，离线重新导出
+python scripts/prepare_mmlongbench.py --from-json data/raw/mmlongbench/samples.hf.json
+
+# 真实 PDF 的 CPU 接入检查（仅开发集小样本，不代表多模态效果）
+python scripts/run_benchmark.py --config configs/mmlongbench_cpu.yaml --dataset data/eval/mmlongbench/smoke.json --output results/mmlongbench_smoke.json
+
+# 6GB GPU 正式运行；默认 --dataset 已切换为 MMLongBench 项目测试集
+python scripts/run_benchmark.py --config configs/gpu_6gb.yaml --output results/mmlongbench_test.json
 ```
+
+数据包含 135 份 PDF、1,091 道题。`full.json` 保留所有题目；`dev.json` 与 `test.json`
+按 PDF 内容哈希隔离。它们是本项目划分，不是官方训练/测试划分。
+异常证据页不推测修补：保留问答标签与原始字段，跳过相应页检索/引用指标并报告计分题数。
+PDF、原始文件和生成的数据集均保存在本地，Git 仅管理导入代码和说明；来源、许可、
+版本、异常明细及阈值校准步骤见 [数据集说明](docs/mmlongbench_dataset.md)。
+
+## 中文 FinGLM 训练
+
+```powershell
+.\.venv\Scripts\python.exe scripts/prepare_finglm_sft.py --limit 1000
+.\.venv\Scripts\python.exe scripts/train_finglm_lora.py `
+  --data data/finglm_cn/sft/train.jsonl `
+  --output models/adapters/finglm-qwen2vl-2b
+```
+
+中文年报问答、PDF 下载、训练划分和证据约束实验见 [FinGLM 数据说明](docs/finglm_cn_dataset.md)。
+`configs/gpu_6gb_finglm_lora.yaml` 是普通中文适配器消融，
+`configs/gpu_6gb_finglm_grounded.yaml` 是自动页匹配的弱证据消融；两者都不替代
+`configs/gpu_6gb.yaml` 的原始基线。没有检索证据时，生成器会直接返回 `UNANSWERABLE`。
 
 评测条目 schema：
 
@@ -193,7 +223,7 @@ python -m pytest tests/ -q
 
 ## 研究点对应
 
-1. **候选方法贡献**：查询覆盖与抽取质量共同调节页融合，验证噪声中文文档上的收益。
+1. **候选方法贡献**：查询覆盖与抽取质量共同调节页融合，在长文档及不同证据模态上检验收益；中文与扫描噪声作为扩展实验。
 2. **候选方法贡献**：断言证据绑定与预算约束反馈，验证错误接受率、覆盖率和成本的关系。
 3. **工程与评测支撑**：真实 OCR、模型/预处理缓存指纹、文档隔离、阈值文件及完整实验记录。
 

@@ -369,8 +369,10 @@ def run_rag(pdf_path, question, cfg, method="full", force_rebuild=False):
             answer = raw_answer
     else:
         load_in_4bit = bool(cfg.get("generation", {}).get("load_in_4bit", False))
+        adapter_path = cfg.get("generation", {}).get("adapter_path")
         model, processor = load_vlm(cfg["generation"]["model"], load_in_4bit=load_in_4bit,
-                                    device=backends["device"], revision=cfg["generation"].get("revision"))
+                                    device=backends["device"], revision=cfg["generation"].get("revision"),
+                                    adapter_path=adapter_path)
 
         if method in ("text", "ocr"):
             context_parts = []
@@ -403,6 +405,7 @@ def run_rag(pdf_path, question, cfg, method="full", force_rebuild=False):
                 cite_format=grounding_cfg.get("cite_format", "[p.{page}]"),
                 retry_feedback=cfg["generation"].get("retry_feedback"),
                 evidence_texts=evidence_texts,
+                prompt_language=grounding_cfg.get("prompt_language", "zh"),
             )
             answer_with_citations, citation_repaired = _repair_missing_citation(
                 raw_answer, retrieved_hits, grounding_cfg

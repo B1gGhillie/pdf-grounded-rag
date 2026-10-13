@@ -1,249 +1,238 @@
-"""Download / convert MMLongBench-Doc style evaluation data.
+"""Export MMLongBench-Doc into portable, document-disjoint project data.
 
-MMLongBench-Doc is a long-document multimodal QA benchmark.
-This script supports two modes:
-
-1) --from-json: normalize a local JSON/JSONL export into our eval schema
-2) --from-hf:   attempt HuggingFace datasets download (optional dependency)
-
-Expected output item fields:
-  id, pdf_path, question, answer, answerable, gold_pages, doc_id (optional)
-
-Usage:
-  python scripts/prepare_mmlongbench.py --from-json path/to/raw.json --pdf-root data/pdfs/mmlongbench
-  python scripts/prepare_mmlongbench.py --from-hf --limit 50 --pdf-root data/pdfs/mmlongbench
+All questions are retained. Missing/invalid evidence annotations are explicitly
+masked for page metrics, never guessed or converted into unanswerable questions.
 """
-
 import argparse
+import ast
 import json
+import os
 import sys
+from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.eval.dataset_loader import audit_documents, split_by_document, validate_items
+from src.eval.provenance import atomic_json, file_sha256
 
 
-def _as_bool(value, default=True):
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    text = str(value).strip().lower()
-    if text in ("yes", "y", "true", "1", "answerable"):
-        return True
-    if text in ("no", "n", "false", "0", "unanswerable"):
-        return False
-    return default
+def _as_list(value):
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            # Official evidence_sources uses Python list strings, not JSON.
+            value = ast.literal_eval(value)
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("Expected a list annotation")
+    return list(value)
 
 
 def _as_pages(value):
-    if value is None:
-        return []
-    if isinstance(value, int):
-        return [value]
-    if isinstance(value, str):
-        parts = [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
-        pages = []
-        for p in parts:
-            try:
-                pages.append(int(p))
-            except ValueError:
-                continue
-        return pages
-    if isinstance(value, list):
-        pages = []
-        for p in value:
-            if isinstance(p, dict):
-                p = p.get("page") or p.get("page_number") or p.get("page_idx")
-            try:
-                pages.append(int(p))
-            except (TypeError, ValueError):
-                continue
-        return pages
-    return []
+    if type(value) is int:
+        value = [value]
+    pages = _as_list(value)
+    if any(type(page) is not int or page < 1 for page in pages):
+        raise ValueError("Evidence pages must be positive 1-based integers")
+    return sorted(set(pages))
 
 
-def normalize_item(raw, idx, pdf_root):
-    """Map heterogeneous MMLongBench-like fields into our schema."""
-    question = raw.get("question") or raw.get("query") or raw.get("q")
-    if not question:
-        return None
-
-    answer = raw.get("answer")
-    if answer is None:
-        answer = raw.get("answers") or raw.get("label") or ""
-    if isinstance(answer, list):
-        answer = answer[0] if answer else ""
-
-    answerable = raw.get("answerable")
-    if answerable is None:
-        answerable = raw.get("is_answerable", raw.get("answerable_label"))
-    answerable = _as_bool(answerable, default=bool(str(answer).strip()))
-
-    gold_pages = _as_pages(
-        raw.get("gold_pages")
-        or raw.get("evidence_pages")
-        or raw.get("page_ids")
-        or raw.get("pages")
-        or raw.get("doc_page")
-    )
-
-    doc_id = raw.get("doc_id") or raw.get("document_id") or raw.get("doc") or "doc"
-    pdf_path = raw.get("pdf_path") or raw.get("pdf") or raw.get("document")
-    if pdf_path:
-        pdf_path = str(pdf_path)
-        candidate = Path(pdf_path)
-        if not candidate.is_absolute():
-            under_root = Path(pdf_root) / pdf_path
-            if under_root.exists():
-                pdf_path = str(under_root)
-            elif (Path(pdf_root) / Path(pdf_path).name).exists():
-                pdf_path = str(Path(pdf_root) / Path(pdf_path).name)
+def normalize_item(raw, idx, pdf_root, page_count=None):
+    question = raw.get("question") or raw.get("query")
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError(f"Row {idx}: missing question")
+    answer = raw.get("answer", "")
+    if not isinstance(answer, str):
+        answer = json.dumps(answer, ensure_ascii=False)
+    upstream_unanswerable = (answer.strip().lower() == "not answerable"
+                            or raw.get("answer_format") == "None")
+    answerable = raw.get("answerable", not upstream_unanswerable)
+    if type(answerable) is not bool or (answerable and upstream_unanswerable):
+        raise ValueError(f"Row {idx}: inconsistent answerability labels")
+    doc_id = raw.get("doc_id") or raw.get("document_id")
+    if not doc_id:
+        raise ValueError(f"Row {idx}: missing doc_id")
+    pdf_name = str(doc_id)
+    if not pdf_name.lower().endswith(".pdf"):
+        pdf_name += ".pdf"
+    pdf_root = Path(pdf_root).resolve()
+    if Path(pdf_name).name != pdf_name or "\\" in pdf_name:
+        raise ValueError(f"Row {idx}: doc_id must be a PDF filename")
+    pdf_path = pdf_root / pdf_name
+    upstream_pages = raw.get("gold_pages", raw.get("evidence_pages", []))
+    issue = None
+    if not answerable:
+        pages, status = [], "not_applicable"
     else:
-        # Convention: pdf_root/{doc_id}.pdf
-        guess = Path(pdf_root) / "{0}.pdf".format(doc_id)
-        pdf_path = str(guess)
-
-    item_id = raw.get("id") or raw.get("qid") or "{0}_{1}".format(doc_id, idx)
-
-    return {
-        "id": str(item_id),
-        "doc_id": str(doc_id),
-        "pdf_path": pdf_path,
-        "question": question,
-        "answer": answer if answerable else "",
-        "gold_pages": gold_pages,
-        "answerable": answerable,
-        "category": raw.get("category") or raw.get("type") or "mmlongbench",
+        try:
+            pages = _as_pages(upstream_pages)
+            status = "complete" if pages else "missing"
+            if not pages:
+                issue = "Upstream answerable question has no evidence-page annotation"
+            elif page_count is not None and any(p > page_count for p in pages):
+                raise ValueError(f"Evidence page exceeds PDF length ({page_count})")
+        except (ValueError, SyntaxError, TypeError) as exc:
+            pages, status, issue = [], "invalid", str(exc)
+    sources = _as_list(raw.get("evidence_sources", []))
+    if any(not isinstance(source, str) for source in sources):
+        raise ValueError(f"Row {idx}: evidence sources must be strings")
+    categories = {"Pure-text (Plain-text)": "text", "Generalized-text (Layout)": "layout",
+                  "Table": "table", "Chart": "chart", "Figure": "figure"}
+    if not answerable:
+        category = "unanswerable"
+    elif len(set(sources)) > 1:
+        category = "mixed"
+    else:
+        category = categories.get(sources[0], "unspecified") if sources else "unspecified"
+    item = {
+        "id": str(raw.get("id") or raw.get("qid") or f"mmlongbench_{idx:05d}"),
+        "source_index": idx, "doc_id": str(doc_id), "pdf_path": str(pdf_path),
+        "question": question, "answer": answer if answerable else "",
+        "answerable": answerable, "gold_pages": pages,
+        "evidence_annotation_status": status, "category": category,
+        "doc_type": raw.get("doc_type"), "answer_format": raw.get("answer_format"),
+        "evidence_sources": sources, "upstream_answer": raw.get("answer"),
+        "upstream_evidence_pages": upstream_pages,
+        "upstream_evidence_sources": raw.get("evidence_sources"),
     }
+    if issue:
+        item["evidence_annotation_issue"] = issue
+    return item
 
 
 def load_raw_records(path):
     path = Path(path)
     if path.suffix.lower() == ".jsonl":
-        records = []
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    records.append(json.loads(line))
-        return records
-
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
         return data
-    for key in ("items", "data", "examples", "questions"):
-        if key in data and isinstance(data[key], list):
-            return data[key]
-    raise ValueError("Unrecognized JSON structure in {0}".format(path))
+    if isinstance(data, dict):
+        for key in ("items", "data", "examples", "questions"):
+            if isinstance(data.get(key), list):
+                return data[key]
+    raise ValueError(f"Unrecognized JSON structure: {path}")
 
 
-def convert_from_json(raw_path, output_path, pdf_root, limit=None, skip_missing_pdf=False):
-    records = load_raw_records(raw_path)
-    items = []
-    skipped = 0
-    for i, raw in enumerate(records):
-        if limit is not None and len(items) >= limit:
-            break
-        item = normalize_item(raw, i, pdf_root)
-        if item is None:
-            skipped += 1
-            continue
-        if skip_missing_pdf and not Path(item["pdf_path"]).exists():
-            skipped += 1
-            continue
-        items.append(item)
+def _portable(items, directory):
+    return [{**item, "pdf_path": os.path.relpath(item["pdf_path"], directory).replace("\\", "/")}
+            for item in items]
 
-    payload = {
-        "name": "mmlongbench_subset",
-        "source": str(raw_path),
-        "items": items,
-    }
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
 
+def summarize(items):
     return {
-        "output": str(output_path),
-        "count": len(items),
-        "skipped": skipped,
-        "answerable": sum(1 for x in items if x["answerable"]),
-        "unanswerable": sum(1 for x in items if not x["answerable"]),
+        "questions": len(items), "documents": len({i["doc_id"] for i in items}),
+        "unique_pdf_hashes": len({i["document_sha256"] for i in items}),
+        "answerable": sum(i["answerable"] for i in items),
+        "unanswerable": sum(not i["answerable"] for i in items),
+        "with_usable_evidence": sum(i["evidence_annotation_status"] == "complete" for i in items),
+        "cross_page_with_usable_evidence": sum(len(i["gold_pages"]) > 1 for i in items),
+        "evidence_status": dict(Counter(i["evidence_annotation_status"] for i in items)),
+        "categories": dict(Counter(i["category"] for i in items)),
+        "document_types": dict(Counter(i["doc_type"] for i in items)),
     }
 
 
-def try_download_hf(dataset_name, split, limit):
-    try:
-        from datasets import load_dataset
-    except ImportError as exc:
-        raise SystemExit(
-            "Install datasets first: pip install datasets\n{0}".format(exc)
-        )
+def convert_from_json(raw_path, output_path, pdf_root, limit=None, dev_fraction=0.3, seed=42):
+    import pymupdf
 
-    print("Loading HuggingFace dataset:", dataset_name, "split=", split)
-    ds = load_dataset(dataset_name, split=split)
-    records = []
-    for i, row in enumerate(ds):
-        if limit is not None and i >= limit:
-            break
-        records.append(dict(row))
-    return records
+    records = load_raw_records(raw_path)
+    if limit is not None:
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        records = records[:limit]
+    items, page_counts = [], {}
+    for idx, raw in enumerate(records):
+        item = normalize_item(raw, idx, pdf_root)
+        path = item["pdf_path"]
+        if path not in page_counts:
+            if not Path(path).is_file():
+                raise FileNotFoundError(f"Missing PDF: {path}. Run with --from-hf to download the snapshot.")
+            with pymupdf.open(path) as pdf:
+                if pdf.needs_pass or len(pdf) < 1:
+                    raise ValueError(f"Unreadable/empty PDF: {path}")
+                page_counts[path] = len(pdf)
+        items.append(normalize_item(raw, idx, pdf_root, page_counts[path]))
+    validate_items(items)
+    docs = audit_documents(items)
+    output_path = Path(output_path).resolve()
+    out = output_path.parent
+    source_manifest = Path(raw_path).parent / "source_manifest.json"
+    source = json.loads(source_manifest.read_text(encoding="utf-8")) if source_manifest.exists() else {}
+    if Path(raw_path).name != "samples.hf.json":
+        source = {}
+    if source and source.get("raw_json_sha256") != file_sha256(raw_path):
+        raise ValueError("Raw JSON differs from the downloaded snapshot manifest")
+    source = {key: source[key] for key in ("dataset", "revision", "source_url", "license", "annotation_sha256") if key in source}
+    if source:
+        source["source_manifest_sha256"] = file_sha256(source_manifest)
+    source["raw_json_sha256"] = file_sha256(raw_path)
+    metadata = {
+        "name": "MMLongBench-Doc", "schema_version": 2, "source": source,
+        "page_numbering": "1-based physical PDF pages; invalid annotations are masked, not shifted",
+        "evaluation_note": "Project EM/token-F1 and refusal/page metrics; not the official MMLongBench scorer.",
+    }
+    atomic_json(output_path, {**metadata, "split": "full", "items": _portable(items, out)})
+    splits = {}
+    if len({i["document_sha256"] for i in items}) >= 2:
+        splits = split_by_document(items, dev_fraction=dev_fraction, seed=seed)
+        for name, rows in splits.items():
+            atomic_json(out / f"{name}.json", {**metadata, "split": name,
+                "split_origin": "project-created, not an official benchmark partition",
+                "seed": seed, "dev_fraction": dev_fraction, "items": _portable(rows, out)})
+        dev_docs = {i["pdf_path"] for i in splits["dev"]}
+        both_labels = [p for p in dev_docs if {i["answerable"] for i in splits["dev"] if i["pdf_path"] == p} == {True, False}]
+        small_doc = min(both_labels or dev_docs, key=lambda p: (page_counts[p], Path(p).name))
+        candidates = [i for i in splits["dev"] if i["pdf_path"] == small_doc]
+        smoke = sorted(candidates, key=lambda i: (i["answerable"], i["source_index"]))[:1]
+        smoke += [i for i in candidates if i["answerable"]][:3]
+        smoke = list({i["id"]: i for i in smoke}.values())
+        atomic_json(out / "smoke.json", {**metadata, "split": "smoke_from_dev", "items": _portable(smoke, out)})
+    duplicates = Counter((i["doc_id"], i["question"]) for i in items)
+    hash_groups = {}
+    for path, info in docs.items():
+        hash_groups.setdefault(info["sha256"], []).append(Path(path).name)
+    report = {
+        "source": source, "full": summarize(items),
+        "splits": {name: summarize(rows) for name, rows in splits.items()},
+        "split_seed": seed, "dev_document_fraction": dev_fraction,
+        "split_document_overlap": sorted({i["document_sha256"] for i in splits.get("dev", [])}
+                                          & {i["document_sha256"] for i in splits.get("test", [])}),
+        "total_pdf_pages": sum(d["pages"] for d in docs.values()),
+        "max_pdf_pages": max(d["pages"] for d in docs.values()),
+        "annotation_issues": [{"id": i["id"], "doc_id": i["doc_id"], "source_index": i["source_index"],
+            "raw_evidence_pages": i["upstream_evidence_pages"], "issue": i["evidence_annotation_issue"]}
+            for i in items if i.get("evidence_annotation_issue")],
+        "duplicate_questions_retained": [{"doc_id": d, "question": q, "count": n} for (d, q), n in duplicates.items() if n > 1],
+        "duplicate_pdf_content_groups": [names for names in hash_groups.values() if len(names) > 1],
+        "unanswerable_source_evidence_retained_as_metadata": sum(not i["answerable"] and bool(_as_list(i["upstream_evidence_pages"])) for i in items),
+        "documents": [{"filename": Path(p).name, **info} for p, info in sorted(docs.items())],
+    }
+    atomic_json(out / "manifest.json", report)
+    return {"output": str(output_path), "full": report["full"], "splits": report["splits"],
+            "annotation_issues": len(report["annotation_issues"]), "total_pdf_pages": report["total_pdf_pages"]}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Prepare MMLongBench-style eval set")
-    parser.add_argument("--from-json", type=str, default=None, help="Local JSON/JSONL export")
-    parser.add_argument("--from-hf", action="store_true", help="Download via HuggingFace datasets")
-    parser.add_argument(
-        "--hf-name",
-        type=str,
-        default="yubo2333/MMLongBench-Doc",
-        help="HF dataset id (may change; override if needed)",
-    )
-    parser.add_argument("--split", type=str, default="test")
-    parser.add_argument("--pdf-root", type=str, default="data/pdfs/mmlongbench")
-    parser.add_argument("--output", type=str, default="data/eval/mmlongbench_subset.json")
-    parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--skip-missing-pdf", action="store_true")
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--from-json", help="Local official JSON/JSONL annotations")
+    mode.add_argument("--from-hf", "--download", action="store_true", help="Download pinned annotations and all PDFs")
+    parser.add_argument("--raw-dir", default="data/raw/mmlongbench")
+    parser.add_argument("--pdf-root", default="data/pdfs/mmlongbench")
+    parser.add_argument("--output", default="data/eval/mmlongbench/full.json")
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--dev-fraction", type=float, default=0.3)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
-
-    Path(args.pdf_root).mkdir(parents=True, exist_ok=True)
-
-    if args.from_json:
-        stats = convert_from_json(
-            args.from_json,
-            args.output,
-            args.pdf_root,
-            limit=args.limit,
-            skip_missing_pdf=args.skip_missing_pdf,
-        )
-        print(json.dumps(stats, ensure_ascii=False, indent=2))
-        return
-
+    raw_path = args.from_json
     if args.from_hf:
-        records = try_download_hf(args.hf_name, args.split, args.limit)
-        tmp = Path("data/eval/_mmlongbench_hf_raw.json")
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=2)
-        stats = convert_from_json(
-            tmp,
-            args.output,
-            args.pdf_root,
-            limit=args.limit,
-            skip_missing_pdf=args.skip_missing_pdf,
-        )
-        print(json.dumps(stats, ensure_ascii=False, indent=2))
-        print(
-            "Note: place corresponding PDFs under {0} (named by doc_id.pdf) "
-            "before running benchmarks.".format(args.pdf_root)
-        )
-        return
-
-    parser.error("Specify --from-json or --from-hf")
+        from scripts.download_mmlongbench import download_snapshot
+        raw_path = download_snapshot(args.raw_dir, args.pdf_root)
+    stats = convert_from_json(raw_path, args.output, args.pdf_root, args.limit, args.dev_fraction, args.seed)
+    print(json.dumps(stats, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

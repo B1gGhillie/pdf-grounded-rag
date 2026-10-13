@@ -1,0 +1,2 @@
+# Optional: official MMLongBench-Doc Parquet import (no model downloads).
+pyarrow>=15,<24

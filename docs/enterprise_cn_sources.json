@@ -1,0 +1,15 @@
+{
+  "split_policy": "Pilot only: fixed company-disjoint split chosen from document metadata before any model runs. Development includes 2023/2024/2025 reports; test includes 2024/2025 reports. Six companies for development/validation, three held out for test; one regulator report is supplementary and excluded from company QA scores. No fine-tuning train split. This small convenience sample is not a representative benchmark.",
+  "documents": [
+    {"doc_id":"vanke_2025","filename":"万科.pdf","company_group":"vanke","company":"万科企业股份有限公司","report_year":2025,"doc_type":"financial_statements","split":"dev"},
+    {"doc_id":"huawei_2025","filename":"华为2025年年报_0401.pdf","company_group":"huawei","company":"华为投资控股有限公司","report_year":2025,"doc_type":"annual_report","split":"dev"},
+    {"doc_id":"huayang_2025","filename":"华阳股份.pdf","company_group":"huayang","company":"山西华阳集团新能股份有限公司","report_year":2025,"doc_type":"annual_report","split":"dev"},
+    {"doc_id":"jac_2025","filename":"江淮汽车.pdf","company_group":"jac","company":"安徽江淮汽车集团股份有限公司","report_year":2025,"doc_type":"annual_report","split":"test"},
+    {"doc_id":"woer_2025","filename":"沃尔核材.pdf","company_group":"woer","company":"深圳市沃尔核材股份有限公司","report_year":2025,"doc_type":"annual_report","split":"test"},
+    {"doc_id":"fulai_2025","filename":"福莱蒽特.pdf","company_group":"fulai","company":"杭州福莱蒽特股份有限公司","report_year":2025,"doc_type":"annual_report","split":"dev"},
+    {"doc_id":"jingtou_2023","filename":"京投发展.pdf","company_group":"jingtou","company":"京投发展股份有限公司","report_year":2023,"doc_type":"annual_report","split":"dev"},
+    {"doc_id":"chint_2024","filename":"正泰电器：正泰电器2024年年度报告.pdf","company_group":"chint","company":"浙江正泰电器股份有限公司","report_year":2024,"doc_type":"annual_report","split":"test"},
+    {"doc_id":"kehua_2024","filename":"科华数据2024年报.pdf","company_group":"kehua","company":"科华数据股份有限公司","report_year":2024,"doc_type":"annual_report","split":"dev"},
+    {"doc_id":"regulator_2025","filename":"上市公司2025年年度财务报告会计监管报告.pdf","company_group":"regulator","company":null,"report_year":2025,"doc_type":"regulatory_report","split":"supplementary"}
+  ]
+}

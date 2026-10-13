@@ -18,5 +18,11 @@ pytest_out.txt
 _status.txt
 data/eval/_mmlongbench_hf_raw.json
 data/pdfs/mmlongbench/
+data/raw/mmlongbench/
+data/eval/mmlongbench/
 data/tessdata/
 data/fixtures/chinese/
+data/enterprise_cn/
+data/finglm_cn/
+models/adapters/
+tmp/

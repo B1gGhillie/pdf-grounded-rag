@@ -98,7 +98,8 @@ def apply_grounding(
     if grounding_cfg.get("granularity", "claim") == "claim":
         verifier = None
         if use_vlm:
-            verifier = lambda claim, hits, q: verify_claim_on_pages(model, processor, claim, hits, q)
+            verifier = lambda claim, hits, q: verify_claim_on_pages(
+                model, processor, claim, hits, q, prompt_language=grounding_cfg.get("prompt_language", "zh"))
         verify_result = verify_claim_units(raw_answer, retrieved_hits, question,
                                           grounding_cfg.get("lexical_min_overlap", 0.6), verifier)
         verify_result["verification_backend"] = "vlm" if use_vlm else "lexical_guarded"

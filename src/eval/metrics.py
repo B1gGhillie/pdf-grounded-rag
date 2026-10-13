@@ -168,7 +168,11 @@ def score_prediction(prediction, gold):
             metrics["conditional_em"] = answer_scores["em"]
             metrics["conditional_f1"] = answer_scores["f1"]
         # Score citations actually delivered, not a rejected internal draft.
-        metrics.update(citation_metrics([] if predicted_refused else _cited_pages_from_prediction(prediction), gold_pages))
+        if gold_pages:
+            metrics.update(citation_metrics([] if predicted_refused else _cited_pages_from_prediction(prediction), gold_pages))
+        else:
+            # Missing/invalid upstream evidence is not a zero- or perfect-score label.
+            metrics.update({"citation_precision": None, "citation_recall": None, "citation_f1": None})
         grounding = prediction.get("grounding") or {}
         if grounding:
             verified = grounding.get("grounding_verified")
@@ -236,6 +240,8 @@ def aggregate_metrics(per_item_metrics):
             sum(1 for m in per_item_metrics if m.get("gold_refused") is False),
         ),
         "answerable_count": sum(1 for m in per_item_metrics if m.get("gold_refused") is False),
+        "page_metric_count": sum(m.get("page_recall@5") is not None for m in per_item_metrics),
+        "citation_metric_count": sum(m.get("citation_f1") is not None for m in per_item_metrics),
         "answered_answerable": sum(
             1 for m in per_item_metrics
             if m.get("gold_refused") is False and not m.get("predicted_refused")

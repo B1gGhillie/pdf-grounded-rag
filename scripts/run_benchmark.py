@@ -14,7 +14,7 @@ from src.utils.config import load_config
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark / ablation runner")
-    parser.add_argument("--dataset", type=str, default="data/eval/sample_dataset.json")
+    parser.add_argument("--dataset", type=str, default="data/eval/mmlongbench/test.json")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
     parser.add_argument(
         "--method",

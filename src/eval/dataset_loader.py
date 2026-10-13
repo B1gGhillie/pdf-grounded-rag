@@ -51,6 +51,9 @@ def validate_items(items):
         if not isinstance(ident, str) or not ident or ident in ids:
             raise ValueError(f"Missing/duplicate string id: {ident}")
         ids.add(ident)
+        # Machine proposals must not silently become gold evaluation labels.
+        if "annotation_status" in item and item["annotation_status"] != "approved":
+            raise ValueError(f"{ident}: unreviewed annotation; approve labels and export with scripts/export_enterprise_eval.py")
         if not isinstance(item.get("question"), str) or not item["question"].strip():
             raise ValueError(f"{ident}: question must be nonempty")
         if type(item.get("answerable")) is not bool:
@@ -60,7 +63,16 @@ def validate_items(items):
             raise ValueError(f"{ident}: gold_pages must be unique positive 1-based integers")
         if not isinstance(item.get("answer"), str):
             raise ValueError(f"{ident}: answer must be a string")
-        if item["answerable"] and (not item["answer"].strip() or not pages):
+        status = item.get("evidence_annotation_status", "complete")
+        if status not in {"complete", "missing", "invalid", "not_applicable"}:
+            raise ValueError(f"{ident}: invalid evidence_annotation_status")
+        missing_evidence = status in {"missing", "invalid"}
+        if missing_evidence and (pages or not isinstance(item.get("evidence_annotation_issue"), str)
+                                 or not item["evidence_annotation_issue"].strip()):
+            raise ValueError(f"{ident}: unavailable evidence requires empty gold_pages and an explicit issue")
+        if item["answerable"] and status == "not_applicable":
+            raise ValueError(f"{ident}: answerable evidence cannot be not_applicable")
+        if item["answerable"] and (not item["answer"].strip() or (not pages and not missing_evidence)):
             raise ValueError(f"{ident}: answerable items require an answer and evidence pages")
         if not item["answerable"] and item["answer"].strip():
             raise ValueError(f"{ident}: unanswerable items must have an empty answer")
